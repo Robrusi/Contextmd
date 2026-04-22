@@ -1,0 +1,41 @@
+{
+  "name": "contextmd",
+  "version": "0.1.0",
+  "description": "Clone documentation websites into local Markdown folders.",
+  "module": "index.ts",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "docs",
+    "markdown",
+    "crawler",
+    "scraper",
+    "documentation"
+  ],
+  "files": [
+    "index.ts",
+    "types.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "bun run index.ts",
+    "crawl": "bun run index.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run typecheck"
+  },
+  "bin": {
+    "contextmd": "./index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "sanitize-filename": "^1.6.4",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2"
+  }
+}
