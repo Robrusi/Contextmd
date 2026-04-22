@@ -1,4 +1,4 @@
-# contextmd
+# Contextmd
 
 Clone documentation websites into local Markdown files.
 
@@ -9,13 +9,13 @@ Clone documentation websites into local Markdown files.
 Run it with Bun:
 
 ```bash
-bunx contextmd https://example.com/docs
+bunx @robrusi/contextmd https://example.com/docs
 ```
 
 Or install it globally:
 
 ```bash
-bun add -g contextmd
+bun add -g @robrusi/contextmd
 contextmd https://example.com/docs
 ```
 

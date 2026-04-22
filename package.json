@@ -1,5 +1,5 @@
 {
-  "name": "contextmd",
+  "name": "@robrusi/contextmd",
   "version": "0.1.0",
   "description": "Clone documentation websites into local Markdown folders.",
   "module": "index.ts",
