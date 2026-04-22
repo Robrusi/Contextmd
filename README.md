@@ -112,6 +112,73 @@ Only crawl a specific docs path:
 contextmd https://example.com/docs --prefix /docs
 ```
 
+## Using With Agents
+
+`contextmd` is useful when you want an AI coding agent to answer from local docs instead of searching the web.
+
+First, clone the docs into a folder:
+
+```bash
+mkdir -p ~/agent-docs
+cd ~/agent-docs
+contextmd https://example.com/docs
+```
+
+Then point your agent at the generated folder:
+
+```text
+Use the local docs in ~/agent-docs/example/ for this task. Search those Markdown files first, especially _meta/index.md, before using web search.
+```
+
+### Project-local docs
+
+You can keep generated docs inside a project in a hidden folder:
+
+```bash
+cd my-app
+mkdir -p .contextmd
+contextmd https://example.com/docs --out .contextmd
+```
+
+That creates:
+
+```text
+my-app/
+  .contextmd/
+    example/
+      index.md
+      api-reference/
+        agents/
+          tools.md
+      _meta/
+        index.md
+```
+
+Then tell the agent:
+
+```text
+Use .contextmd/example/ as the documentation source for this project.
+```
+
+Usually you should add the folder to `.gitignore`:
+
+```gitignore
+.contextmd/
+```
+
+Real example:
+
+```bash
+cd ~/projects/my-app
+contextmd https://docs.agentmail.to --out .contextmd
+```
+
+Then tell the agent:
+
+```text
+Use .contextmd/agentmail/ as the docs source for AgentMail.
+```
+
 ## Notes
 
 - `contextmd` only crawls same-origin pages under the selected prefix.
