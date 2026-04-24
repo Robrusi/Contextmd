@@ -102,7 +102,7 @@ test("renders cleaned markdown with frontmatter and heading", () => {
   expect(output).toContain("Paragraph");
 });
 
-test("prepareDocsRoot uses the requested directory directly", async () => {
+test("prepareDocsRoot nests output under the site slug", async () => {
   const originalCwd = process.cwd();
   const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
   tempDirs.push(sandbox);
@@ -115,7 +115,7 @@ test("prepareDocsRoot uses the requested directory directly", async () => {
       clean: true,
     });
 
-    expect(await realpath(docsRoot)).toBe(await realpath(sandbox));
+    expect(await realpath(docsRoot)).toBe(await realpath(join(sandbox, "bun")));
   } finally {
     process.chdir(originalCwd);
   }
