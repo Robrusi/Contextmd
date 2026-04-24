@@ -43,13 +43,13 @@ https://bun.com/docs/pm/cli/install
 becomes:
 
 ```text
-pm/cli/install.md
+bun/pm/cli/install.md
 ```
 
 An index of copied pages is also written to:
 
 ```text
-_meta/index.md
+bun/_meta/index.md
 ```
 
 ## Options
