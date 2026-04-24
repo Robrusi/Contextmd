@@ -1,8 +1,9 @@
 {
   "name": "@robrusi/contextmd",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Clone documentation websites into local Markdown folders.",
-  "module": "src/index.ts",
+  "module": "./index.ts",
+  "exports": "./index.ts",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -13,6 +14,8 @@
     "documentation"
   ],
   "files": [
+    "contextmd",
+    "index.ts",
     "src",
     "types.d.ts",
     "README.md",
@@ -25,7 +28,7 @@
     "prepublishOnly": "bun run typecheck"
   },
   "bin": {
-    "contextmd": "./src/index.ts"
+    "contextmd": "contextmd"
   },
   "devDependencies": {
     "@types/bun": "latest",

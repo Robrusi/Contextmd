@@ -1,6 +1,16 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { htmlToMarkdown, renderMarkdown } from "./src/index.ts";
+import { prepareDocsRoot } from "./src/crawl.ts";
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
 
 test("preserves code block filenames and languages from docs widgets", () => {
   const markdown = htmlToMarkdown(`
@@ -90,4 +100,23 @@ test("renders cleaned markdown with frontmatter and heading", () => {
   expect(output).toContain('title: "Example"');
   expect(output).toContain("# Example");
   expect(output).toContain("Paragraph");
+});
+
+test("prepareDocsRoot uses the requested directory directly", async () => {
+  const originalCwd = process.cwd();
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  process.chdir(sandbox);
+
+  try {
+    const docsRoot = await prepareDocsRoot("https://bun.com/docs", {
+      outDir: ".",
+      clean: true,
+    });
+
+    expect(await realpath(docsRoot)).toBe(await realpath(sandbox));
+  } finally {
+    process.chdir(originalCwd);
+  }
 });

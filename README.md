@@ -31,7 +31,7 @@ contextmd https://bun.com/docs
 This creates:
 
 ```text
-~/docs/bun/
+~/docs/
 ```
 
 By default, routes are saved as Markdown files:
@@ -43,19 +43,19 @@ https://bun.com/docs/pm/cli/install
 becomes:
 
 ```text
-bun/pm/cli/install.md
+pm/cli/install.md
 ```
 
 An index of copied pages is also written to:
 
 ```text
-bun/_meta/index.md
+_meta/index.md
 ```
 
 ## Options
 
 ```text
---out <dir>          Parent output directory. Default: current directory
+--out <dir>          Output directory. Default: current directory
 --max-pages <n>      Stop after n pages. Default: 500
 --prefix <path>      URL path prefix to crawl. Default: first path segment
 --layout <mode>      title or route. Default: title
@@ -94,7 +94,7 @@ Save into the current folder:
 contextmd https://example.com/docs
 ```
 
-Save into a specific parent folder:
+Save into a specific folder:
 
 ```bash
 contextmd https://example.com/docs --out ./local-docs
