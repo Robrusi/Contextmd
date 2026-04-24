@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { htmlToMarkdown, renderMarkdown } from "./index.ts";
+import { htmlToMarkdown, renderMarkdown } from "./src/index.ts";
 
 test("preserves code block filenames and languages from docs widgets", () => {
   const markdown = htmlToMarkdown(`

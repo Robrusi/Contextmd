@@ -192,7 +192,7 @@ Use .contextmd/agentmail/ as the docs source for AgentMail.
 ```bash
 bun install
 bun run typecheck
-bun run index.ts --help
+bun run src/index.ts --help
 ```
 
 Use it locally as a command:
