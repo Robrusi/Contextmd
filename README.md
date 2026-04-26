@@ -56,6 +56,7 @@ bun/_meta/index.md
 
 ```text
 --out <dir>          Parent output directory. Default: current directory
+--name <folder>      Output folder name. Default: site hostname
 --max-pages <n>      Stop after n pages. Default: 500
 --prefix <path>      URL path prefix to crawl. Default: first path segment
 --layout <mode>      title or route. Default: title
@@ -98,6 +99,12 @@ Save into a specific parent folder:
 
 ```bash
 contextmd https://example.com/docs --out ./local-docs
+```
+
+Choose the generated folder name:
+
+```bash
+contextmd https://example.com/docs --name example-docs
 ```
 
 Limit the crawl:

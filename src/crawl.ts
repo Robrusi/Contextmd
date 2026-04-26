@@ -15,6 +15,7 @@ export type Layout = "title" | "route";
 
 export type Options = {
   outDir: string;
+  name?: string;
   maxPages: number;
   prefix?: string;
   clean: boolean;
@@ -104,7 +105,9 @@ function isLikelyHtmlUrl(url: string): boolean {
 export function siteSlugFromUrl(startUrl: string): string {
   const url = new URL(startUrl);
   const host = url.hostname.replace(/^www\./, "");
-  return safeName(host.split(".")[0] ?? "site", "site").toLowerCase();
+  const segments = host.split(".").filter(Boolean);
+  const slug = segments.length > 2 ? segments[1] : segments[0];
+  return safeName(slug ?? "site", "site").toLowerCase();
 }
 
 function safeName(value: string, fallback: string): string {
@@ -473,10 +476,12 @@ export async function writeIndex(docsRoot: string, pages: Page[]) {
 
 export async function prepareDocsRoot(
   startUrl: string,
-  options: Pick<Options, "outDir" | "clean">,
+  options: Pick<Options, "outDir" | "clean" | "name">,
 ): Promise<string> {
-  const siteSlug = siteSlugFromUrl(startUrl);
-  const docsRoot = resolve(process.cwd(), options.outDir, siteSlug);
+  const folderName = options.name
+    ? safeName(options.name, siteSlugFromUrl(startUrl))
+    : siteSlugFromUrl(startUrl);
+  const docsRoot = resolve(process.cwd(), options.outDir, folderName);
 
   if (options.clean) await rm(docsRoot, { recursive: true, force: true });
   await mkdir(docsRoot, { recursive: true });

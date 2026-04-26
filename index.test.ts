@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { htmlToMarkdown, renderMarkdown } from "./src/index.ts";
-import { prepareDocsRoot } from "./src/crawl.ts";
+import { prepareDocsRoot, siteSlugFromUrl } from "./src/crawl.ts";
 
 const tempDirs: string[] = [];
 
@@ -119,4 +119,35 @@ test("prepareDocsRoot nests output under the site slug", async () => {
   } finally {
     process.chdir(originalCwd);
   }
+});
+
+test("prepareDocsRoot can use a custom folder name", async () => {
+  const originalCwd = process.cwd();
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  process.chdir(sandbox);
+
+  try {
+    const docsRoot = await prepareDocsRoot("https://bun.com/docs", {
+      outDir: ".",
+      name: "runtime docs",
+      clean: true,
+    });
+
+    expect(await realpath(docsRoot)).toBe(
+      await realpath(join(sandbox, "runtime docs")),
+    );
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+test("site slug skips subdomains", () => {
+  expect(siteSlugFromUrl("https://docs.composio.dev")).toBe("composio");
+  expect(siteSlugFromUrl("https://api.composio.dev")).toBe("composio");
+});
+
+test("site slug uses bare domain name", () => {
+  expect(siteSlugFromUrl("https://composio.dev")).toBe("composio");
 });

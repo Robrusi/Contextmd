@@ -17,6 +17,7 @@ Usage:
 
 Options:
   --out <dir>          Parent output directory. Default: current directory
+  --name <folder>      Output folder name. Default: site hostname
   --max-pages <n>      Stop after n pages. Default: 500
   --prefix <path>      URL path prefix to keep. Default: first path segment
   --layout <mode>      title or route. Default: title
@@ -71,6 +72,7 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
 
     if (
       arg === "--out" ||
+      arg === "--name" ||
       arg === "--max-pages" ||
       arg === "--prefix" ||
       arg === "--layout"
@@ -80,6 +82,7 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
       i += 1;
 
       if (arg === "--out") options.outDir = value;
+      if (arg === "--name") options.name = value;
 
       if (arg === "--max-pages") {
         const parsed = Number.parseInt(value, 10);
