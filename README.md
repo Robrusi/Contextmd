@@ -2,7 +2,7 @@
 
 Clone documentation websites into local Markdown files.
 
-`contextmd` crawls pages from a docs site, extracts the main content, converts it to Markdown, and saves the files into the folder where you run the command.
+`contextmd` crawls pages from a docs site, extracts the main content, converts it to Markdown, and saves the files into a site-named folder inside the folder where you run the command.
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ contextmd https://bun.com/docs
 This creates:
 
 ```text
-~/docs/
+~/docs/bun/
 ```
 
 By default, routes are saved as Markdown files:
@@ -55,7 +55,7 @@ bun/_meta/index.md
 ## Options
 
 ```text
---out <dir>          Output directory. Default: current directory
+--out <dir>          Parent output directory. Default: current directory
 --max-pages <n>      Stop after n pages. Default: 500
 --prefix <path>      URL path prefix to crawl. Default: first path segment
 --layout <mode>      title or route. Default: title
@@ -94,7 +94,7 @@ Save into the current folder:
 contextmd https://example.com/docs
 ```
 
-Save into a specific folder:
+Save into a specific parent folder:
 
 ```bash
 contextmd https://example.com/docs --out ./local-docs

@@ -472,10 +472,11 @@ export async function writeIndex(docsRoot: string, pages: Page[]) {
 }
 
 export async function prepareDocsRoot(
-  _startUrl: string,
+  startUrl: string,
   options: Pick<Options, "outDir" | "clean">,
 ): Promise<string> {
-  const docsRoot = resolve(process.cwd(), options.outDir);
+  const siteSlug = siteSlugFromUrl(startUrl);
+  const docsRoot = resolve(process.cwd(), options.outDir, siteSlug);
 
   if (options.clean) await rm(docsRoot, { recursive: true, force: true });
   await mkdir(docsRoot, { recursive: true });

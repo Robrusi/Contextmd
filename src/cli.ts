@@ -16,12 +16,12 @@ Usage:
   contextmd <docs-url> [options]
 
 Options:
-  --out <dir>          Output directory. Default: current directory
+  --out <dir>          Parent output directory. Default: current directory
   --max-pages <n>      Stop after n pages. Default: 500
   --prefix <path>      URL path prefix to keep. Default: first path segment
   --layout <mode>      title or route. Default: title
   --keep-query         Treat query strings as unique pages
-  --no-clean           Do not delete the existing output directory first
+  --no-clean           Do not delete the existing site output directory first
   -h, --help           Show this help
 
 Examples:
