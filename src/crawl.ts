@@ -34,9 +34,22 @@ type ManifestPage = {
   url: string;
   title: string;
   outputFile: string;
+  contentHash: string;
 };
 
-type CrawlContext = {
+export type Manifest = {
+  version: 1;
+  startUrl: string;
+  origin: string;
+  prefix: string;
+  layout: Layout;
+  keepQuery: boolean;
+  maxPages: number;
+  crawledAt: string;
+  pages: ManifestPage[];
+};
+
+export type CrawlContext = {
   docsRoot: string;
   prefix: string;
   startOrigin: string;
@@ -276,7 +289,11 @@ function isInternalDocsUrl(
   return isLikelyHtmlUrl(url);
 }
 
-async function fetchHtml(url: string): Promise<string> {
+export function hashContent(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+export async function fetchHtml(url: string): Promise<string> {
   const response = await fetch(url, {
     headers: {
       accept: "text/html,application/xhtml+xml",
@@ -297,6 +314,27 @@ async function fetchHtml(url: string): Promise<string> {
   }
 
   return response.text();
+}
+
+export function pageFromHtml(
+  url: string,
+  html: string,
+  prefix: string,
+  layout: Layout,
+  usedOutputPaths = new Set<string>(),
+): Page {
+  const $ = cheerio.load(html);
+  const title = titleFromPage($, url);
+  const mainHtml = mainHtmlFromPage($);
+  const candidateOutputFile = outputPathForPage({ url }, prefix, layout);
+  const outputFile = dedupeOutputPath(
+    candidateOutputFile,
+    url,
+    usedOutputPaths,
+  );
+  usedOutputPaths.add(outputFile);
+
+  return { url, title, mainHtml, outputFile };
 }
 
 export async function crawlDocs(
@@ -339,26 +377,18 @@ export async function crawlDocs(
     }
 
     const $ = cheerio.load(html);
-    const title = titleFromPage($, current);
-    const mainHtml = mainHtmlFromPage($);
-    const candidateOutputFile = outputPathForPage(
-      { url: current },
+    const page = pageFromHtml(
+      current,
+      html,
       context.prefix,
       options.layout,
-    );
-    const outputFile = dedupeOutputPath(
-      candidateOutputFile,
-      current,
       usedOutputPaths,
     );
-    usedOutputPaths.add(outputFile);
-
-    const page: Page = { url: current, title, mainHtml, outputFile };
     pages.push(page);
-    context.outputByUrl.set(current, outputFile);
+    context.outputByUrl.set(current, page.outputFile);
     await writePage(context, page);
     await writeIndex(docsRoot, pages);
-    console.log(`Saved ${outputFile}`);
+    console.log(`Saved ${page.outputFile}`);
 
     $("a[href]").each((_, element) => {
       const href = $(element).attr("href");
@@ -439,32 +469,30 @@ function rewriteLinks(
   });
 }
 
-async function writePage(context: CrawlContext, page: Page) {
+export function renderPageMarkdown(context: CrawlContext, page: Page): string {
   const finalFragment = loadFragment(page.mainHtml);
   removeDuplicateTitle(finalFragment, page.title);
   rewriteLinks(finalFragment, page, context);
 
   const finalBody = finalFragment("main[data-contextmd-root]").html() || "";
   const finalMarkdown = htmlToMarkdown(finalBody);
-  const targetPath = join(context.docsRoot, page.outputFile);
 
+  return renderMarkdown(page.title, page.url, finalMarkdown);
+}
+
+async function writePage(context: CrawlContext, page: Page) {
+  const targetPath = join(context.docsRoot, page.outputFile);
   await mkdir(dirname(targetPath), { recursive: true });
-  await Bun.write(targetPath, renderMarkdown(page.title, page.url, finalMarkdown));
+  await Bun.write(targetPath, renderPageMarkdown(context, page));
 }
 
 export async function writeIndex(docsRoot: string, pages: Page[]) {
-  const manifestPages: ManifestPage[] = pages.map(
-    ({ url, title, outputFile }) => ({
-      url,
-      title,
-      outputFile,
-    }),
-  );
+  const indexPages = pages.map(({ url, outputFile }) => ({ url, outputFile }));
 
   const index = [
     "# Local Docs Index",
     "",
-    ...manifestPages.map(
+    ...indexPages.map(
       (page) =>
         `- [${page.outputFile}](../${encodeURI(page.outputFile)}) - ${page.url}`,
     ),
@@ -472,6 +500,44 @@ export async function writeIndex(docsRoot: string, pages: Page[]) {
   ].join("\n");
 
   await Bun.write(join(docsRoot, "_meta", "index.md"), index);
+}
+
+export async function writeManifest(
+  docsRoot: string,
+  startUrl: string,
+  options: Options,
+  pages: Page[],
+) {
+  const prefix = options.prefix ?? getDocsPrefix(startUrl);
+  const manifestPages: ManifestPage[] = [];
+
+  for (const page of pages) {
+    const content = await Bun.file(join(docsRoot, page.outputFile)).text();
+    manifestPages.push({
+      url: page.url,
+      title: page.title,
+      outputFile: page.outputFile,
+      contentHash: hashContent(content),
+    });
+  }
+
+  const manifest: Manifest = {
+    version: 1,
+    startUrl,
+    origin: new URL(startUrl).origin,
+    prefix,
+    layout: options.layout,
+    keepQuery: options.keepQuery,
+    maxPages: options.maxPages,
+    crawledAt: new Date().toISOString(),
+    pages: manifestPages,
+  };
+
+  await mkdir(join(docsRoot, "_meta"), { recursive: true });
+  await Bun.write(
+    join(docsRoot, "_meta", "manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
 }
 
 export async function prepareDocsRoot(

@@ -1,0 +1,118 @@
+import { resolve } from "node:path";
+
+import {
+  fetchHtml,
+  hashContent,
+  pageFromHtml,
+  renderPageMarkdown,
+  type CrawlContext,
+  type Manifest,
+} from "./crawl.ts";
+
+export type ChangedPage = {
+  url: string;
+  outputFile: string;
+  previousHash: string;
+  currentHash: string;
+};
+
+export type FailedPage = {
+  url: string;
+  outputFile: string;
+  error: string;
+};
+
+export type CheckResult = {
+  checked: number;
+  changed: ChangedPage[];
+  failed: FailedPage[];
+};
+
+function isManifest(value: unknown): value is Manifest {
+  if (!value || typeof value !== "object") return false;
+
+  const candidate = value as Partial<Manifest>;
+  return (
+    candidate.version === 1 &&
+    typeof candidate.startUrl === "string" &&
+    typeof candidate.origin === "string" &&
+    typeof candidate.prefix === "string" &&
+    (candidate.layout === "title" || candidate.layout === "route") &&
+    typeof candidate.keepQuery === "boolean" &&
+    typeof candidate.maxPages === "number" &&
+    Array.isArray(candidate.pages)
+  );
+}
+
+export async function readManifest(docsRoot: string): Promise<Manifest> {
+  const manifestPath = resolve(docsRoot, "_meta", "manifest.json");
+  const raw = await Bun.file(manifestPath).text();
+  const parsed = JSON.parse(raw);
+
+  if (!isManifest(parsed)) {
+    throw new Error(`Invalid manifest: ${manifestPath}`);
+  }
+
+  return parsed;
+}
+
+export async function checkDocsFolder(
+  docsFolder: string,
+): Promise<CheckResult> {
+  const docsRoot = resolve(process.cwd(), docsFolder);
+  const manifest = await readManifest(docsRoot);
+  const outputByUrl = new Map<string, string>();
+  const context: CrawlContext = {
+    docsRoot,
+    prefix: manifest.prefix,
+    startOrigin: manifest.origin,
+    startHost: new URL(manifest.startUrl).hostname.replace(/^www\./, ""),
+    options: {
+      outDir: ".",
+      maxPages: manifest.maxPages,
+      prefix: manifest.prefix,
+      clean: false,
+      keepQuery: manifest.keepQuery,
+      layout: manifest.layout,
+    },
+    outputByUrl,
+  };
+  const result: CheckResult = { checked: 0, changed: [], failed: [] };
+
+  for (const manifestPage of manifest.pages) {
+    try {
+      const html = await fetchHtml(manifestPage.url);
+      const fetchedPage = pageFromHtml(
+        manifestPage.url,
+        html,
+        manifest.prefix,
+        manifest.layout,
+      );
+      const currentPage = {
+        ...fetchedPage,
+        outputFile: manifestPage.outputFile,
+      };
+
+      outputByUrl.set(currentPage.url, currentPage.outputFile);
+      const currentHash = hashContent(renderPageMarkdown(context, currentPage));
+      result.checked += 1;
+
+      if (currentHash !== manifestPage.contentHash) {
+        result.changed.push({
+          url: manifestPage.url,
+          outputFile: manifestPage.outputFile,
+          previousHash: manifestPage.contentHash,
+          currentHash,
+        });
+      }
+    } catch (error) {
+      result.failed.push({
+        url: manifestPage.url,
+        outputFile: manifestPage.outputFile,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return result;
+}

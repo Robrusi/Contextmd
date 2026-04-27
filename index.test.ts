@@ -1,15 +1,30 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { htmlToMarkdown, renderMarkdown } from "./src/index.ts";
-import { prepareDocsRoot, siteSlugFromUrl } from "./src/crawl.ts";
+import { checkDocsFolder } from "./src/check.ts";
+import { updateDocsFolder } from "./src/update.ts";
+import {
+  hashContent,
+  prepareDocsRoot,
+  renderPageMarkdown,
+  siteSlugFromUrl,
+  writeManifest,
+  type CrawlContext,
+  type Options,
+  type Page,
+} from "./src/crawl.ts";
 
 const tempDirs: string[] = [];
+const originalFetch = globalThis.fetch;
 
 afterEach(async () => {
-  await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  globalThis.fetch = originalFetch;
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
 });
 
 test("preserves code block filenames and languages from docs widgets", () => {
@@ -150,4 +165,204 @@ test("site slug skips subdomains", () => {
 
 test("site slug uses bare domain name", () => {
   expect(siteSlugFromUrl("https://composio.dev")).toBe("composio");
+});
+
+test("writes a crawl manifest with content hashes", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(docsRoot, { recursive: true });
+  await Bun.write(join(docsRoot, "index.md"), "# Home\n");
+
+  const options: Options = {
+    outDir: ".",
+    maxPages: 10,
+    clean: true,
+    keepQuery: false,
+    layout: "title",
+  };
+  const pages: Page[] = [
+    {
+      url: "https://example.com/docs",
+      title: "Home",
+      mainHtml: "<p>Hello</p>",
+      outputFile: "index.md",
+    },
+  ];
+
+  await writeManifest(docsRoot, "https://example.com/docs", options, pages);
+
+  const manifest = JSON.parse(
+    await Bun.file(join(docsRoot, "_meta", "manifest.json")).text(),
+  );
+
+  expect(manifest.version).toBe(1);
+  expect(manifest.startUrl).toBe("https://example.com/docs");
+  expect(manifest.prefix).toBe("/docs");
+  expect(manifest.pages[0].contentHash).toBe(hashContent("# Home\n"));
+});
+
+test("checks a docs folder against the saved manifest", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(join(docsRoot, "_meta"), { recursive: true });
+
+  const html = "<main><h1>Home</h1><p>Hello</p></main>";
+  const page: Page = {
+    url: "https://example.com/docs",
+    title: "Home",
+    mainHtml: "<h1>Home</h1><p>Hello</p>",
+    outputFile: "index.md",
+  };
+  const context: CrawlContext = {
+    docsRoot,
+    prefix: "/docs",
+    startOrigin: "https://example.com",
+    startHost: "example.com",
+    options: {
+      outDir: ".",
+      maxPages: 10,
+      prefix: "/docs",
+      clean: false,
+      keepQuery: false,
+      layout: "title",
+    },
+    outputByUrl: new Map([[page.url, page.outputFile]]),
+  };
+  const contentHash = hashContent(renderPageMarkdown(context, page));
+
+  await Bun.write(
+    join(docsRoot, "_meta", "manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        startUrl: page.url,
+        origin: "https://example.com",
+        prefix: "/docs",
+        layout: "title",
+        keepQuery: false,
+        maxPages: 10,
+        crawledAt: new Date().toISOString(),
+        pages: [
+          {
+            url: page.url,
+            title: page.title,
+            outputFile: page.outputFile,
+            contentHash,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  globalThis.fetch = (async () =>
+    new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    })) as unknown as typeof fetch;
+
+  const result = await checkDocsFolder(docsRoot);
+
+  expect(result.checked).toBe(1);
+  expect(result.changed).toEqual([]);
+  expect(result.failed).toEqual([]);
+});
+
+test("reports changed pages when remote content no longer matches", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(join(docsRoot, "_meta"), { recursive: true });
+
+  await Bun.write(
+    join(docsRoot, "_meta", "manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        startUrl: "https://example.com/docs",
+        origin: "https://example.com",
+        prefix: "/docs",
+        layout: "title",
+        keepQuery: false,
+        maxPages: 10,
+        crawledAt: new Date().toISOString(),
+        pages: [
+          {
+            url: "https://example.com/docs",
+            title: "Home",
+            outputFile: "index.md",
+            contentHash: hashContent("old content"),
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  globalThis.fetch = (async () =>
+    new Response("<main><h1>Home</h1><p>New content</p></main>", {
+      headers: { "content-type": "text/html" },
+    })) as unknown as typeof fetch;
+
+  const result = await checkDocsFolder(docsRoot);
+
+  expect(result.checked).toBe(1);
+  expect(result.changed).toHaveLength(1);
+  expect(result.changed[0]?.outputFile).toBe("index.md");
+});
+
+test("updates a docs folder from its manifest", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(join(docsRoot, "_meta"), { recursive: true });
+  await Bun.write(join(docsRoot, "stale.md"), "stale");
+  await Bun.write(
+    join(docsRoot, "_meta", "manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        startUrl: "https://example.com/docs",
+        origin: "https://example.com",
+        prefix: "/docs",
+        layout: "title",
+        keepQuery: false,
+        maxPages: 10,
+        crawledAt: new Date().toISOString(),
+        pages: [
+          {
+            url: "https://example.com/docs",
+            title: "Old",
+            outputFile: "index.md",
+            contentHash: hashContent("old content"),
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  globalThis.fetch = (async () =>
+    new Response("<main><h1>Home</h1><p>Updated docs</p></main>", {
+      headers: { "content-type": "text/html" },
+    })) as unknown as typeof fetch;
+
+  const result = await updateDocsFolder(docsRoot);
+  const updatedFile = await Bun.file(join(docsRoot, "index.md")).text();
+  const updatedManifest = JSON.parse(
+    await Bun.file(join(docsRoot, "_meta", "manifest.json")).text(),
+  );
+
+  expect(result.pages).toHaveLength(1);
+  expect(updatedFile).toContain("Updated docs");
+  expect(await Bun.file(join(docsRoot, "stale.md")).exists()).toBe(false);
+  expect(updatedManifest.pages[0].contentHash).toBe(hashContent(updatedFile));
 });

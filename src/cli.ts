@@ -7,13 +7,18 @@ import {
   type Layout,
   type Options,
   writeIndex,
+  writeManifest,
 } from "./crawl.ts";
+import { checkDocsFolder } from "./check.ts";
+import { updateDocsFolder } from "./update.ts";
 
 function usage() {
   console.log(`contextmd
 
 Usage:
   contextmd <docs-url> [options]
+  contextmd check <docs-folder>
+  contextmd update <docs-folder>
 
 Options:
   --out <dir>          Parent output directory. Default: current directory
@@ -29,6 +34,8 @@ Examples:
   contextmd https://example.com/docs
   contextmd https://example.com/docs --max-pages 1000
   contextmd https://example.com/docs --layout route
+  contextmd check ./example
+  contextmd update ./example
 `);
 }
 
@@ -115,6 +122,54 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
 }
 
 export async function main() {
+  if (process.argv[2] === "update") {
+    const docsFolder = process.argv[3];
+    if (!docsFolder || process.argv.length > 4) {
+      usage();
+      process.exit(1);
+    }
+
+    const result = await updateDocsFolder(docsFolder);
+    console.log(`Updated ${result.pages.length} pages.`);
+    console.log(`Local docs updated at: ${result.docsRoot}`);
+    return;
+  }
+
+  if (process.argv[2] === "check") {
+    const docsFolder = process.argv[3];
+    if (!docsFolder || process.argv.length > 4) {
+      usage();
+      process.exit(1);
+    }
+
+    const result = await checkDocsFolder(docsFolder);
+
+    if (result.changed.length === 0 && result.failed.length === 0) {
+      console.log(`Fresh. Checked ${result.checked} pages.`);
+      return;
+    }
+
+    console.log(
+      `Out of date. Checked ${result.checked} pages; ${result.changed.length} changed, ${result.failed.length} failed.`,
+    );
+
+    if (result.changed.length) {
+      console.log("Changed:");
+      for (const page of result.changed) {
+        console.log(`  ${page.outputFile} - ${page.url}`);
+      }
+    }
+
+    if (result.failed.length) {
+      console.log("Failed:");
+      for (const failure of result.failed) {
+        console.log(`  ${failure.url} - ${failure.error}`);
+      }
+    }
+
+    process.exit(1);
+  }
+
   const { startUrl, options } = parseArgs(process.argv.slice(2));
   const docsRoot = await prepareDocsRoot(startUrl, options);
   const prefix = options.prefix ?? getDocsPrefix(startUrl);
@@ -126,6 +181,7 @@ export async function main() {
 
   const pages = await crawlDocs(startUrl, docsRoot, options);
   await writeIndex(docsRoot, pages);
+  await writeManifest(docsRoot, startUrl, options, pages);
 
   console.log(`Done. Scraped ${pages.length} pages.`);
   console.log(`Local docs created at: ${docsRoot}`);

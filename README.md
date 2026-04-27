@@ -52,9 +52,20 @@ An index of copied pages is also written to:
 bun/_meta/index.md
 ```
 
+A freshness manifest is written to:
+
+```text
+bun/_meta/manifest.json
+```
+
 ## Options
 
 ```text
+Commands:
+  contextmd <docs-url> [options]
+  contextmd check <docs-folder>
+  contextmd update <docs-folder>
+
 --out <dir>          Parent output directory. Default: current directory
 --name <folder>      Output folder name. Default: site hostname
 --max-pages <n>      Stop after n pages. Default: 500
@@ -118,6 +129,30 @@ Only crawl a specific docs path:
 ```bash
 contextmd https://example.com/docs --prefix /docs
 ```
+
+Check whether a generated docs folder is up to date:
+
+```bash
+contextmd check ./example
+```
+
+The check command reads `_meta/manifest.json`, refetches each recorded source
+URL, regenerates Markdown in memory, and compares it with the saved content
+hash. It prints `Fresh` when all known pages still match, or `Out of date` with
+the changed or failed pages listed.
+
+The command exits with status `0` when the folder is fresh and status `1` when
+any known page changed or failed to load, so it can be used in scripts or CI.
+
+Update a generated docs folder:
+
+```bash
+contextmd update ./example
+```
+
+The update command reads `_meta/manifest.json` to reuse the original start URL,
+prefix, layout, query handling, and page limit. It then replaces the generated
+folder with a fresh crawl and writes a new manifest.
 
 ## Using With Agents
 
