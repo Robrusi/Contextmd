@@ -169,8 +169,10 @@ contextmd https://example.com/docs
 Then point your agent at the generated folder:
 
 ```text
-Use the local docs in ~/agent-docs/example/ for this task. Search those Markdown files first, especially _meta/index.md, before using web search.
+Use the local docs in ~/agent-docs/example/ for this task. Search _meta/index.md and the generated Markdown files before using web search.
 ```
+
+For repeated use, add an instruction to your project's `AGENTS.md` so coding agents search the generated local docs before using web search.
 
 ### Project-local docs
 
