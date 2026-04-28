@@ -429,13 +429,20 @@ test("updates a docs folder from its manifest", async () => {
       headers: { "content-type": "text/html" },
     })) as unknown as typeof fetch;
 
-  const result = await updateDocsFolder(docsRoot);
+  const progress: Array<{ fetched: number; total: number }> = [];
+  const result = await updateDocsFolder(docsRoot, {
+    onProgress: ({ fetched, total }) => {
+      progress.push({ fetched, total });
+    },
+  });
   const updatedFile = await Bun.file(join(docsRoot, "index.md")).text();
   const updatedManifest = JSON.parse(
     await Bun.file(join(docsRoot, "_meta", "manifest.json")).text(),
   );
 
   expect(result.pages).toHaveLength(1);
+  expect(progress[0]).toEqual({ fetched: 0, total: 1 });
+  expect(progress.some((item) => item.fetched === 1)).toBe(true);
   expect(updatedFile).toContain("Updated docs");
   expect(await Bun.file(join(docsRoot, "stale.md")).exists()).toBe(false);
   expect(updatedManifest.pages[0].contentHash).toBe(hashContent(updatedFile));

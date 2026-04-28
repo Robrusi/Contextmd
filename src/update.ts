@@ -6,6 +6,7 @@ import {
   prepareDocsRoot,
   writeIndex,
   writeManifest,
+  type CrawlProgress,
   type Options,
   type Page,
 } from "./crawl.ts";
@@ -15,8 +16,13 @@ export type UpdateResult = {
   pages: Page[];
 };
 
+export type UpdateOptions = {
+  onProgress?: (progress: CrawlProgress) => void;
+};
+
 export async function updateDocsFolder(
   docsFolder: string,
+  updateOptions: UpdateOptions = {},
 ): Promise<UpdateResult> {
   const requestedDocsRoot = resolve(process.cwd(), docsFolder);
   const manifest = await readManifest(requestedDocsRoot);
@@ -32,7 +38,10 @@ export async function updateDocsFolder(
   };
 
   const docsRoot = await prepareDocsRoot(manifest.startUrl, options);
-  const pages = await crawlDocs(manifest.startUrl, docsRoot, options);
+  const pages = await crawlDocs(manifest.startUrl, docsRoot, {
+    ...options,
+    onProgress: updateOptions.onProgress,
+  });
   await writeIndex(docsRoot, pages);
   await writeManifest(docsRoot, manifest.startUrl, options, pages);
 

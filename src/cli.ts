@@ -244,7 +244,17 @@ export async function main() {
       process.exit(1);
     }
 
-    const result = await updateDocsFolder(docsFolder);
+    hideProgressCursor();
+    let result;
+    try {
+      const renderDownloadProgress = createDownloadProgressRenderer();
+      result = await updateDocsFolder(docsFolder, {
+        onProgress: renderDownloadProgress,
+      });
+    } finally {
+      finishProgressLine();
+    }
+
     console.log(`Updated ${result.pages.length} pages.`);
     console.log(`Local docs updated at: ${result.docsRoot}`);
     return;
