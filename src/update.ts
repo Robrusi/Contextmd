@@ -6,6 +6,7 @@ import {
   prepareDocsRoot,
   writeIndex,
   writeManifest,
+  type CrawlFailure,
   type CrawlProgress,
   type Options,
   type Page,
@@ -18,6 +19,7 @@ export type UpdateResult = {
 
 export type UpdateOptions = {
   onProgress?: (progress: CrawlProgress) => void;
+  onFailure?: (failure: CrawlFailure) => void;
 };
 
 export async function updateDocsFolder(
@@ -41,6 +43,7 @@ export async function updateDocsFolder(
   const pages = await crawlDocs(manifest.startUrl, docsRoot, {
     ...options,
     onProgress: updateOptions.onProgress,
+    onFailure: updateOptions.onFailure,
   });
   await writeIndex(docsRoot, pages);
   await writeManifest(docsRoot, manifest.startUrl, options, pages);

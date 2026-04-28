@@ -499,3 +499,44 @@ test("crawls discovered pages in parallel", async () => {
   expect(await Bun.file(join(docsRoot, "b.md")).exists()).toBe(true);
   expect(await Bun.file(join(docsRoot, "c.md")).exists()).toBe(true);
 });
+
+test("reports crawl failures without stopping the crawl", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(docsRoot, { recursive: true });
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = String(input);
+    if (url.endsWith("/missing")) {
+      return new Response("Not found", { status: 404 });
+    }
+
+    return new Response(
+      `<main><h1>Home</h1><p>${"Home ".repeat(30)}</p><a href="/docs/missing">Missing</a></main>`,
+      {
+        headers: { "content-type": "text/html" },
+      },
+    );
+  }) as unknown as typeof fetch;
+
+  const failures: Array<{ url: string; error: string }> = [];
+  const pages = await crawlDocs("https://example.com/docs", docsRoot, {
+    outDir: ".",
+    maxPages: 2,
+    concurrency: 2,
+    prefix: "/docs",
+    clean: false,
+    keepQuery: false,
+    layout: "title",
+    onFailure: (failure) => {
+      failures.push(failure);
+    },
+  });
+
+  expect(pages).toHaveLength(1);
+  expect(failures).toHaveLength(1);
+  expect(failures[0]?.url).toBe("https://example.com/docs/missing");
+  expect(failures[0]?.error).toContain("HTTP 404");
+});

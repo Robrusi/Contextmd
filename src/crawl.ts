@@ -34,8 +34,14 @@ export type CrawlProgress = {
   currentUrl?: string;
 };
 
+export type CrawlFailure = {
+  url: string;
+  error: string;
+};
+
 export type CrawlOptions = Options & {
   onProgress?: (progress: CrawlProgress) => void;
+  onFailure?: (failure: CrawlFailure) => void;
 };
 
 export type Page = {
@@ -436,7 +442,9 @@ export async function crawlDocs(
       html = await fetchHtml(current);
     } catch (error) {
       failed += 1;
-      console.warn(String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      options.onFailure?.({ url: current, error: message });
+      if (!options.onProgress && !options.onFailure) console.warn(message);
       return;
     }
 

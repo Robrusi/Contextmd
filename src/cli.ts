@@ -5,6 +5,7 @@ import {
   normalizePrefix,
   normalizeStartUrl,
   prepareDocsRoot,
+  type CrawlFailure,
   type CrawlProgress,
   type Layout,
   type Options,
@@ -160,7 +161,7 @@ function renderProgressBar(
   const resultColor = failed > 0 ? red : changed > 0 ? yellow : green;
   const status = [
     label,
-    `${dim}[${reset}${resultColor}${bar}${reset}${dim}]${reset}`,
+    `${resultColor}${bar}${reset}`,
     `${percent}%`,
     `${checked}/${total}`,
     `${yellow}${changed}${reset} changed`,
@@ -177,30 +178,33 @@ function truncateForTerminal(value: string, columns: number) {
 }
 
 function createDownloadProgressRenderer() {
-  let lastCurrentUrl = "";
+  let initialized = false;
+  let currentLine = "Preparing download";
 
   return (progress: CrawlProgress) => {
     if (!process.stderr.isTTY) return;
 
-    if (
-      progress.currentUrl &&
-      progress.phase === "fetching" &&
-      progress.currentUrl !== lastCurrentUrl
-    ) {
-      lastCurrentUrl = progress.currentUrl;
-      const columns = process.stderr.columns ?? 80;
-      process.stderr.write(
-        `\x1b[2K\r${truncateForTerminal(`Downloading ${progress.currentUrl}`, columns)}\n`,
-      );
+    if (progress.phase === "writing") {
+      currentLine = "Writing Markdown files";
+    } else if (progress.currentUrl) {
+      currentLine = `Downloading ${progress.currentUrl}`;
     }
 
-    renderDownloadProgressBar(progress);
+    const columns = process.stderr.columns ?? 80;
+    const status = downloadProgressStatus(progress);
+    const moveToCurrentLine = initialized ? "\x1b[1A" : "";
+
+    process.stderr.write(
+      `${moveToCurrentLine}\x1b[2K\r${truncateForTerminal(
+        currentLine,
+        columns,
+      )}\n\x1b[2K\r${status}`,
+    );
+    initialized = true;
   };
 }
 
-function renderDownloadProgressBar(progress: CrawlProgress) {
-  if (!process.stderr.isTTY) return;
-
+function downloadProgressStatus(progress: CrawlProgress) {
   const total = Math.max(progress.total, progress.fetched);
   const width = Math.max(18, Math.min(40, (process.stderr.columns ?? 80) - 42));
   const ratio = total > 0 ? progress.fetched / total : 0;
@@ -217,7 +221,7 @@ function renderDownloadProgressBar(progress: CrawlProgress) {
   const phase = progress.phase === "writing" ? "Writing" : "Downloading";
   const status = [
     phase,
-    `${dim}[${reset}${color}${bar}${reset}${dim}]${reset}`,
+    `${color}${bar}${reset}`,
     `${percent}%`,
     `${progress.fetched}/${total}`,
     progress.failed > 0 ? `${red}${progress.failed}${reset} failed` : "",
@@ -225,7 +229,7 @@ function renderDownloadProgressBar(progress: CrawlProgress) {
     .filter(Boolean)
     .join("  ");
 
-  process.stderr.write(`\x1b[2K\r${status}`);
+  return status;
 }
 
 function finishProgressLine() {
@@ -234,6 +238,17 @@ function finishProgressLine() {
 
 function hideProgressCursor() {
   if (process.stderr.isTTY) process.stderr.write("\x1b[?25l");
+}
+
+function printCrawlFailures(failures: CrawlFailure[]) {
+  if (!failures.length) return;
+
+  console.error(`Failed downloads (${failures.length}):`);
+  for (const [index, failure] of failures.entries()) {
+    console.error(`[${index + 1}]`);
+    console.error(`  URL:   ${failure.url}`);
+    console.error(`  Error: ${failure.error}`);
+  }
 }
 
 export async function main() {
@@ -245,16 +260,23 @@ export async function main() {
     }
 
     hideProgressCursor();
+    const failures: CrawlFailure[] = [];
     let result;
     try {
-      const renderDownloadProgress = createDownloadProgressRenderer();
+      const renderDownloadProgress = process.stderr.isTTY
+        ? createDownloadProgressRenderer()
+        : undefined;
       result = await updateDocsFolder(docsFolder, {
         onProgress: renderDownloadProgress,
+        onFailure: (failure) => {
+          failures.push(failure);
+        },
       });
     } finally {
       finishProgressLine();
     }
 
+    printCrawlFailures(failures);
     console.log(`Updated ${result.pages.length} pages.`);
     console.log(`Local docs updated at: ${result.docsRoot}`);
     return;
@@ -321,16 +343,23 @@ export async function main() {
   );
 
   hideProgressCursor();
+  const failures: CrawlFailure[] = [];
   let pages: Page[];
   try {
-    const renderDownloadProgress = createDownloadProgressRenderer();
+    const renderDownloadProgress = process.stderr.isTTY
+      ? createDownloadProgressRenderer()
+      : undefined;
     pages = await crawlDocs(startUrl, docsRoot, {
       ...options,
       onProgress: renderDownloadProgress,
+      onFailure: (failure) => {
+        failures.push(failure);
+      },
     });
   } finally {
     finishProgressLine();
   }
+  printCrawlFailures(failures);
   await writeIndex(docsRoot, pages);
   await writeManifest(docsRoot, startUrl, options, pages);
 
