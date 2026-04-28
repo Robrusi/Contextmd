@@ -7,6 +7,7 @@ import { htmlToMarkdown, renderMarkdown } from "./src/index.ts";
 import { checkDocsFolder } from "./src/check.ts";
 import { updateDocsFolder } from "./src/update.ts";
 import {
+  crawlDocs,
   hashContent,
   prepareDocsRoot,
   renderPageMarkdown,
@@ -365,4 +366,50 @@ test("updates a docs folder from its manifest", async () => {
   expect(updatedFile).toContain("Updated docs");
   expect(await Bun.file(join(docsRoot, "stale.md")).exists()).toBe(false);
   expect(updatedManifest.pages[0].contentHash).toBe(hashContent(updatedFile));
+});
+
+test("crawls discovered pages in parallel", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(docsRoot, { recursive: true });
+
+  let active = 0;
+  let maxActive = 0;
+
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+
+    await Bun.sleep(20);
+
+    const url = String(input);
+    active -= 1;
+
+    const body =
+      url === "https://example.com/docs"
+        ? `<main><h1>Home</h1><p>${"Home ".repeat(30)}</p><a href="/docs/a">A</a><a href="/docs/b">B</a><a href="/docs/c">C</a></main>`
+        : `<main><h1>${url}</h1><p>${"Leaf ".repeat(30)}</p></main>`;
+
+    return new Response(body, {
+      headers: { "content-type": "text/html" },
+    });
+  }) as unknown as typeof fetch;
+
+  const pages = await crawlDocs("https://example.com/docs", docsRoot, {
+    outDir: ".",
+    maxPages: 4,
+    concurrency: 3,
+    prefix: "/docs",
+    clean: false,
+    keepQuery: false,
+    layout: "title",
+  });
+
+  expect(pages).toHaveLength(4);
+  expect(maxActive).toBeGreaterThan(1);
+  expect(await Bun.file(join(docsRoot, "a.md")).exists()).toBe(true);
+  expect(await Bun.file(join(docsRoot, "b.md")).exists()).toBe(true);
+  expect(await Bun.file(join(docsRoot, "c.md")).exists()).toBe(true);
 });

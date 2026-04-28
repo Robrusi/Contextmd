@@ -24,6 +24,7 @@ export async function updateDocsFolder(
     outDir: dirname(requestedDocsRoot),
     name: basename(requestedDocsRoot),
     maxPages: manifest.maxPages,
+    concurrency: manifest.concurrency,
     prefix: manifest.prefix,
     clean: true,
     keepQuery: manifest.keepQuery,

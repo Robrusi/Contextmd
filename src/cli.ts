@@ -1,5 +1,6 @@
 import {
   crawlDocs,
+  DEFAULT_CONCURRENCY,
   getDocsPrefix,
   normalizePrefix,
   normalizeStartUrl,
@@ -24,6 +25,7 @@ Options:
   --out <dir>          Parent output directory. Default: current directory
   --name <folder>      Output folder name. Default: site hostname
   --max-pages <n>      Stop after n pages. Default: 500
+  --concurrency <n>    Pages to fetch in parallel. Default: ${DEFAULT_CONCURRENCY}
   --prefix <path>      URL path prefix to keep. Default: first path segment
   --layout <mode>      title or route. Default: title
   --keep-query         Treat query strings as unique pages
@@ -51,6 +53,7 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
   const options: Options = {
     outDir: ".",
     maxPages: 500,
+    concurrency: DEFAULT_CONCURRENCY,
     clean: true,
     keepQuery: false,
     layout: "title",
@@ -81,6 +84,7 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
       arg === "--out" ||
       arg === "--name" ||
       arg === "--max-pages" ||
+      arg === "--concurrency" ||
       arg === "--prefix" ||
       arg === "--layout"
     ) {
@@ -98,6 +102,15 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
         }
 
         options.maxPages = parsed;
+      }
+
+      if (arg === "--concurrency") {
+        const parsed = Number.parseInt(value, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+          throw new Error("--concurrency must be a positive number");
+        }
+
+        options.concurrency = parsed;
       }
 
       if (arg === "--prefix") options.prefix = normalizePrefix(value);

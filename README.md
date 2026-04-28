@@ -69,6 +69,7 @@ Commands:
 --out <dir>          Parent output directory. Default: current directory
 --name <folder>      Output folder name. Default: site hostname
 --max-pages <n>      Stop after n pages. Default: 500
+--concurrency <n>    Pages to fetch in parallel. Default: 12
 --prefix <path>      URL path prefix to crawl. Default: first path segment
 --layout <mode>      title or route. Default: title
 --keep-query         Treat query strings as separate pages
@@ -122,6 +123,12 @@ Limit the crawl:
 
 ```bash
 contextmd https://example.com/docs --max-pages 50
+```
+
+Fetch more pages in parallel:
+
+```bash
+contextmd https://example.com/docs --concurrency 24
 ```
 
 Only crawl a specific docs path:

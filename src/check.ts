@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import {
   fetchHtml,
   hashContent,
+  normalizeConcurrency,
   pageFromHtml,
   renderPageMarkdown,
   type CrawlContext,
@@ -44,6 +45,26 @@ function isManifest(value: unknown): value is Manifest {
   );
 }
 
+async function forEachConcurrent<T>(
+  items: T[],
+  concurrency: number | undefined,
+  callback: (item: T) => Promise<void>,
+) {
+  let index = 0;
+
+  const worker = async () => {
+    while (index < items.length) {
+      const item = items[index];
+      index += 1;
+      if (item) await callback(item);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: normalizeConcurrency(concurrency) }, () => worker()),
+  );
+}
+
 export async function readManifest(docsRoot: string): Promise<Manifest> {
   const manifestPath = resolve(docsRoot, "_meta", "manifest.json");
   const raw = await Bun.file(manifestPath).text();
@@ -61,7 +82,9 @@ export async function checkDocsFolder(
 ): Promise<CheckResult> {
   const docsRoot = resolve(process.cwd(), docsFolder);
   const manifest = await readManifest(docsRoot);
-  const outputByUrl = new Map<string, string>();
+  const outputByUrl = new Map(
+    manifest.pages.map((page) => [page.url, page.outputFile]),
+  );
   const context: CrawlContext = {
     docsRoot,
     prefix: manifest.prefix,
@@ -70,6 +93,7 @@ export async function checkDocsFolder(
     options: {
       outDir: ".",
       maxPages: manifest.maxPages,
+      concurrency: manifest.concurrency,
       prefix: manifest.prefix,
       clean: false,
       keepQuery: manifest.keepQuery,
@@ -79,40 +103,46 @@ export async function checkDocsFolder(
   };
   const result: CheckResult = { checked: 0, changed: [], failed: [] };
 
-  for (const manifestPage of manifest.pages) {
-    try {
-      const html = await fetchHtml(manifestPage.url);
-      const fetchedPage = pageFromHtml(
-        manifestPage.url,
-        html,
-        manifest.prefix,
-        manifest.layout,
-      );
-      const currentPage = {
-        ...fetchedPage,
-        outputFile: manifestPage.outputFile,
-      };
+  await forEachConcurrent(
+    manifest.pages,
+    manifest.concurrency,
+    async (manifestPage) => {
+      try {
+        const html = await fetchHtml(manifestPage.url);
+        const fetchedPage = pageFromHtml(
+          manifestPage.url,
+          html,
+          manifest.prefix,
+          manifest.layout,
+        );
+        const currentPage = {
+          ...fetchedPage,
+          outputFile: manifestPage.outputFile,
+        };
 
-      outputByUrl.set(currentPage.url, currentPage.outputFile);
-      const currentHash = hashContent(renderPageMarkdown(context, currentPage));
-      result.checked += 1;
+        outputByUrl.set(currentPage.url, currentPage.outputFile);
+        const currentHash = hashContent(
+          renderPageMarkdown(context, currentPage),
+        );
+        result.checked += 1;
 
-      if (currentHash !== manifestPage.contentHash) {
-        result.changed.push({
+        if (currentHash !== manifestPage.contentHash) {
+          result.changed.push({
+            url: manifestPage.url,
+            outputFile: manifestPage.outputFile,
+            previousHash: manifestPage.contentHash,
+            currentHash,
+          });
+        }
+      } catch (error) {
+        result.failed.push({
           url: manifestPage.url,
           outputFile: manifestPage.outputFile,
-          previousHash: manifestPage.contentHash,
-          currentHash,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
-    } catch (error) {
-      result.failed.push({
-        url: manifestPage.url,
-        outputFile: manifestPage.outputFile,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
+    },
+  );
 
   return result;
 }

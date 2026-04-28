@@ -17,6 +17,7 @@ export type Options = {
   outDir: string;
   name?: string;
   maxPages: number;
+  concurrency?: number;
   prefix?: string;
   clean: boolean;
   keepQuery: boolean;
@@ -45,6 +46,7 @@ export type Manifest = {
   layout: Layout;
   keepQuery: boolean;
   maxPages: number;
+  concurrency?: number;
   crawledAt: string;
   pages: ManifestPage[];
 };
@@ -59,6 +61,12 @@ export type CrawlContext = {
 };
 
 const HTML_EXTENSIONS = new Set(["", ".html", ".htm", ".php", ".aspx"]);
+export const DEFAULT_CONCURRENCY = 32;
+
+export function normalizeConcurrency(value?: number): number {
+  if (!value || !Number.isFinite(value)) return DEFAULT_CONCURRENCY;
+  return Math.max(1, Math.floor(value));
+}
 
 export function normalizeStartUrl(url: string, keepQuery: boolean): string {
   const normalized = normalizeUrl(url, url, keepQuery);
@@ -324,6 +332,16 @@ export function pageFromHtml(
   usedOutputPaths = new Set<string>(),
 ): Page {
   const $ = cheerio.load(html);
+  return pageFromDocument(url, $, prefix, layout, usedOutputPaths);
+}
+
+function pageFromDocument(
+  url: string,
+  $: cheerio.CheerioAPI,
+  prefix: string,
+  layout: Layout,
+  usedOutputPaths: Set<string>,
+): Page {
   const title = titleFromPage($, url);
   const mainHtml = mainHtmlFromPage($);
   const candidateOutputFile = outputPathForPage({ url }, prefix, layout);
@@ -360,12 +378,25 @@ export async function crawlDocs(
   const queue = [startUrl];
   const usedOutputPaths = new Set<string>();
   const pages: Page[] = [];
+  const waiters: Array<() => void> = [];
+  let active = 0;
 
-  while (queue.length && pages.length < options.maxPages) {
-    const current = queue.shift();
-    if (!current || seen.has(current)) continue;
+  const wakeWorkers = () => {
+    for (const wake of waiters.splice(0)) wake();
+  };
 
-    seen.add(current);
+  const waitForWork = () =>
+    new Promise<void>((resolve) => {
+      waiters.push(resolve);
+    });
+
+  const enqueue = (url: string) => {
+    queued.add(url);
+    queue.push(url);
+    wakeWorkers();
+  };
+
+  const crawlOne = async (current: string) => {
     console.log(`Loading ${current}`);
 
     let html = "";
@@ -373,22 +404,22 @@ export async function crawlDocs(
       html = await fetchHtml(current);
     } catch (error) {
       console.warn(String(error));
-      continue;
+      return;
     }
 
+    if (pages.length >= options.maxPages) return;
+
     const $ = cheerio.load(html);
-    const page = pageFromHtml(
+    const page = pageFromDocument(
       current,
-      html,
+      $,
       context.prefix,
       options.layout,
       usedOutputPaths,
     );
     pages.push(page);
     context.outputByUrl.set(current, page.outputFile);
-    await writePage(context, page);
-    await writeIndex(docsRoot, pages);
-    console.log(`Saved ${page.outputFile}`);
+    console.log(`Fetched ${page.outputFile}`);
 
     $("a[href]").each((_, element) => {
       const href = $(element).attr("href");
@@ -398,10 +429,44 @@ export async function crawlDocs(
       if (!next || queued.has(next) || seen.has(next)) return;
       if (!isInternalDocsUrl(next, context)) return;
 
-      queued.add(next);
-      queue.push(next);
+      enqueue(next);
     });
-  }
+  };
+
+  const worker = async () => {
+    while (pages.length < options.maxPages) {
+      const current = queue.shift();
+
+      if (!current) {
+        if (active === 0) {
+          wakeWorkers();
+          return;
+        }
+
+        await waitForWork();
+        continue;
+      }
+
+      if (seen.has(current)) continue;
+
+      seen.add(current);
+      active += 1;
+      try {
+        await crawlOne(current);
+      } finally {
+        active -= 1;
+        wakeWorkers();
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: normalizeConcurrency(options.concurrency) }, () =>
+      worker(),
+    ),
+  );
+
+  await Promise.all(pages.map((page) => writePage(context, page)));
 
   if (queue.length) {
     console.warn(
@@ -529,6 +594,7 @@ export async function writeManifest(
     layout: options.layout,
     keepQuery: options.keepQuery,
     maxPages: options.maxPages,
+    concurrency: options.concurrency,
     crawledAt: new Date().toISOString(),
     pages: manifestPages,
   };
