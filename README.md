@@ -69,7 +69,7 @@ Commands:
 --out <dir>          Parent output directory. Default: current directory
 --name <folder>      Output folder name. Default: site hostname
 --max-pages <n>      Stop after n pages. Default: 500
---concurrency <n>    Pages to fetch in parallel. Default: 12
+--concurrency <n>    Pages to fetch in parallel. Default: 32
 --prefix <path>      URL path prefix to crawl. Default: first path segment
 --layout <mode>      title or route. Default: title
 --keep-query         Treat query strings as separate pages
