@@ -29,6 +29,17 @@ export type CheckResult = {
   failed: FailedPage[];
 };
 
+export type CheckProgress = {
+  checked: number;
+  total: number;
+  changed: number;
+  failed: number;
+};
+
+export type CheckOptions = {
+  onProgress?: (progress: CheckProgress) => void;
+};
+
 function isManifest(value: unknown): value is Manifest {
   if (!value || typeof value !== "object") return false;
 
@@ -79,6 +90,7 @@ export async function readManifest(docsRoot: string): Promise<Manifest> {
 
 export async function checkDocsFolder(
   docsFolder: string,
+  options: CheckOptions = {},
 ): Promise<CheckResult> {
   const docsRoot = resolve(process.cwd(), docsFolder);
   const manifest = await readManifest(docsRoot);
@@ -102,6 +114,16 @@ export async function checkDocsFolder(
     outputByUrl,
   };
   const result: CheckResult = { checked: 0, changed: [], failed: [] };
+  const reportProgress = () => {
+    options.onProgress?.({
+      checked: result.checked + result.failed.length,
+      total: manifest.pages.length,
+      changed: result.changed.length,
+      failed: result.failed.length,
+    });
+  };
+
+  reportProgress();
 
   await forEachConcurrent(
     manifest.pages,
@@ -140,6 +162,8 @@ export async function checkDocsFolder(
           outputFile: manifestPage.outputFile,
           error: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        reportProgress();
       }
     },
   );

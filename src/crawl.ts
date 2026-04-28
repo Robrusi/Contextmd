@@ -24,6 +24,20 @@ export type Options = {
   layout: Layout;
 };
 
+export type CrawlProgress = {
+  fetched: number;
+  total: number;
+  active: number;
+  queued: number;
+  failed: number;
+  phase: "fetching" | "writing";
+  currentUrl?: string;
+};
+
+export type CrawlOptions = Options & {
+  onProgress?: (progress: CrawlProgress) => void;
+};
+
 export type Page = {
   url: string;
   title: string;
@@ -358,7 +372,7 @@ function pageFromDocument(
 export async function crawlDocs(
   startUrl: string,
   docsRoot: string,
-  options: Options,
+  options: CrawlOptions,
 ): Promise<Page[]> {
   const start = new URL(startUrl);
   const context: CrawlContext = {
@@ -380,6 +394,22 @@ export async function crawlDocs(
   const pages: Page[] = [];
   const waiters: Array<() => void> = [];
   let active = 0;
+  let failed = 0;
+
+  const reportProgress = (
+    phase: CrawlProgress["phase"] = "fetching",
+    currentUrl?: string,
+  ) => {
+    options.onProgress?.({
+      fetched: pages.length,
+      total: Math.min(options.maxPages, queued.size),
+      active,
+      queued: queue.length,
+      failed,
+      phase,
+      currentUrl,
+    });
+  };
 
   const wakeWorkers = () => {
     for (const wake of waiters.splice(0)) wake();
@@ -393,16 +423,19 @@ export async function crawlDocs(
   const enqueue = (url: string) => {
     queued.add(url);
     queue.push(url);
+    reportProgress();
     wakeWorkers();
   };
 
   const crawlOne = async (current: string) => {
-    console.log(`Loading ${current}`);
+    if (!options.onProgress) console.log(`Loading ${current}`);
+    reportProgress("fetching", current);
 
     let html = "";
     try {
       html = await fetchHtml(current);
     } catch (error) {
+      failed += 1;
       console.warn(String(error));
       return;
     }
@@ -419,7 +452,8 @@ export async function crawlDocs(
     );
     pages.push(page);
     context.outputByUrl.set(current, page.outputFile);
-    console.log(`Fetched ${page.outputFile}`);
+    if (!options.onProgress) console.log(`Fetched ${page.outputFile}`);
+    reportProgress();
 
     $("a[href]").each((_, element) => {
       const href = $(element).attr("href");
@@ -455,10 +489,13 @@ export async function crawlDocs(
         await crawlOne(current);
       } finally {
         active -= 1;
+        reportProgress();
         wakeWorkers();
       }
     }
   };
+
+  reportProgress();
 
   await Promise.all(
     Array.from({ length: normalizeConcurrency(options.concurrency) }, () =>
@@ -466,7 +503,9 @@ export async function crawlDocs(
     ),
   );
 
+  reportProgress("writing");
   await Promise.all(pages.map((page) => writePage(context, page)));
+  reportProgress("writing");
 
   if (queue.length) {
     console.warn(

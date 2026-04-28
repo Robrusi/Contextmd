@@ -5,8 +5,10 @@ import {
   normalizePrefix,
   normalizeStartUrl,
   prepareDocsRoot,
+  type CrawlProgress,
   type Layout,
   type Options,
+  type Page,
   writeIndex,
   writeManifest,
 } from "./crawl.ts";
@@ -134,6 +136,106 @@ function parseArgs(argv: string[]): { startUrl: string; options: Options } {
   return { startUrl: normalizeStartUrl(startUrl, options.keepQuery), options };
 }
 
+function renderProgressBar(
+  label: string,
+  checked: number,
+  total: number,
+  changed: number,
+  failed: number,
+) {
+  if (!process.stderr.isTTY) return;
+
+  const width = Math.max(18, Math.min(36, (process.stderr.columns ?? 80) - 62));
+  const ratio = total > 0 ? checked / total : 1;
+  const filled = Math.min(width, Math.round(ratio * width));
+  const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+  const percent = Math.round(ratio * 100)
+    .toString()
+    .padStart(3, " ");
+  const dim = "\x1b[2m";
+  const green = "\x1b[32m";
+  const yellow = "\x1b[33m";
+  const red = "\x1b[31m";
+  const reset = "\x1b[0m";
+  const resultColor = failed > 0 ? red : changed > 0 ? yellow : green;
+  const status = [
+    label,
+    `${dim}[${reset}${resultColor}${bar}${reset}${dim}]${reset}`,
+    `${percent}%`,
+    `${checked}/${total}`,
+    `${yellow}${changed}${reset} changed`,
+    `${red}${failed}${reset} failed`,
+  ].join("  ");
+
+  process.stderr.write(`\x1b[2K\r${status}`);
+}
+
+function truncateForTerminal(value: string, columns: number) {
+  if (value.length <= columns) return value;
+  if (columns <= 1) return "…";
+  return `${value.slice(0, columns - 1)}…`;
+}
+
+function createDownloadProgressRenderer() {
+  let lastCurrentUrl = "";
+
+  return (progress: CrawlProgress) => {
+    if (!process.stderr.isTTY) return;
+
+    if (
+      progress.currentUrl &&
+      progress.phase === "fetching" &&
+      progress.currentUrl !== lastCurrentUrl
+    ) {
+      lastCurrentUrl = progress.currentUrl;
+      const columns = process.stderr.columns ?? 80;
+      process.stderr.write(
+        `\x1b[2K\r${truncateForTerminal(`Downloading ${progress.currentUrl}`, columns)}\n`,
+      );
+    }
+
+    renderDownloadProgressBar(progress);
+  };
+}
+
+function renderDownloadProgressBar(progress: CrawlProgress) {
+  if (!process.stderr.isTTY) return;
+
+  const total = Math.max(progress.total, progress.fetched);
+  const width = Math.max(18, Math.min(40, (process.stderr.columns ?? 80) - 42));
+  const ratio = total > 0 ? progress.fetched / total : 0;
+  const filled = Math.min(width, Math.round(ratio * width));
+  const bar = `${"█".repeat(filled)}${"░".repeat(width - filled)}`;
+  const percent = Math.round(ratio * 100)
+    .toString()
+    .padStart(3, " ");
+  const dim = "\x1b[2m";
+  const green = "\x1b[32m";
+  const red = "\x1b[31m";
+  const reset = "\x1b[0m";
+  const color = progress.failed > 0 ? red : green;
+  const phase = progress.phase === "writing" ? "Writing" : "Downloading";
+  const status = [
+    phase,
+    `${dim}[${reset}${color}${bar}${reset}${dim}]${reset}`,
+    `${percent}%`,
+    `${progress.fetched}/${total}`,
+    progress.failed > 0 ? `${red}${progress.failed}${reset} failed` : "",
+  ]
+    .filter(Boolean)
+    .join("  ");
+
+  process.stderr.write(`\x1b[2K\r${status}`);
+}
+
+function finishProgressLine() {
+  if (process.stderr.isTTY) process.stderr.write("\x1b[?25h\n");
+}
+
+function hideProgressCursor() {
+  if (process.stderr.isTTY) process.stderr.write("\x1b[?25l");
+}
+
 export async function main() {
   if (process.argv[2] === "update") {
     const docsFolder = process.argv[3];
@@ -155,7 +257,23 @@ export async function main() {
       process.exit(1);
     }
 
-    const result = await checkDocsFolder(docsFolder);
+    hideProgressCursor();
+    let result;
+    try {
+      result = await checkDocsFolder(docsFolder, {
+        onProgress: (progress) => {
+          renderProgressBar(
+            "Checking",
+            progress.checked,
+            progress.total,
+            progress.changed,
+            progress.failed,
+          );
+        },
+      });
+    } finally {
+      finishProgressLine();
+    }
 
     if (result.changed.length === 0 && result.failed.length === 0) {
       console.log(`Fresh. Checked ${result.checked} pages.`);
@@ -192,7 +310,17 @@ export async function main() {
     `Keeping same-origin pages under ${new URL(startUrl).origin}${prefix}`,
   );
 
-  const pages = await crawlDocs(startUrl, docsRoot, options);
+  hideProgressCursor();
+  let pages: Page[];
+  try {
+    const renderDownloadProgress = createDownloadProgressRenderer();
+    pages = await crawlDocs(startUrl, docsRoot, {
+      ...options,
+      onProgress: renderDownloadProgress,
+    });
+  } finally {
+    finishProgressLine();
+  }
   await writeIndex(docsRoot, pages);
   await writeManifest(docsRoot, startUrl, options, pages);
 

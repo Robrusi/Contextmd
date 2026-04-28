@@ -273,6 +273,79 @@ test("checks a docs folder against the saved manifest", async () => {
   expect(result.failed).toEqual([]);
 });
 
+test("reports check progress", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
+  tempDirs.push(sandbox);
+
+  const docsRoot = join(sandbox, "docs");
+  await mkdir(join(docsRoot, "_meta"), { recursive: true });
+
+  const html = "<main><h1>Home</h1><p>Hello</p></main>";
+  const page: Page = {
+    url: "https://example.com/docs",
+    title: "Home",
+    mainHtml: "<h1>Home</h1><p>Hello</p>",
+    outputFile: "index.md",
+  };
+  const context: CrawlContext = {
+    docsRoot,
+    prefix: "/docs",
+    startOrigin: "https://example.com",
+    startHost: "example.com",
+    options: {
+      outDir: ".",
+      maxPages: 10,
+      prefix: "/docs",
+      clean: false,
+      keepQuery: false,
+      layout: "title",
+    },
+    outputByUrl: new Map([[page.url, page.outputFile]]),
+  };
+  const contentHash = hashContent(renderPageMarkdown(context, page));
+
+  await Bun.write(
+    join(docsRoot, "_meta", "manifest.json"),
+    `${JSON.stringify(
+      {
+        version: 1,
+        startUrl: page.url,
+        origin: "https://example.com",
+        prefix: "/docs",
+        layout: "title",
+        keepQuery: false,
+        maxPages: 10,
+        crawledAt: new Date().toISOString(),
+        pages: [
+          {
+            url: page.url,
+            title: page.title,
+            outputFile: page.outputFile,
+            contentHash,
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  globalThis.fetch = (async () =>
+    new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    })) as unknown as typeof fetch;
+
+  const progress: Array<{ checked: number; total: number }> = [];
+  await checkDocsFolder(docsRoot, {
+    onProgress: ({ checked, total }) => {
+      progress.push({ checked, total });
+    },
+  });
+
+  expect(progress[0]).toEqual({ checked: 0, total: 1 });
+  expect(progress.at(-1)).toEqual({ checked: 1, total: 1 });
+});
+
 test("reports changed pages when remote content no longer matches", async () => {
   const sandbox = await mkdtemp(join(tmpdir(), "contextmd-"));
   tempDirs.push(sandbox);
@@ -397,6 +470,7 @@ test("crawls discovered pages in parallel", async () => {
     });
   }) as unknown as typeof fetch;
 
+  const progress: Array<{ fetched: number; total: number }> = [];
   const pages = await crawlDocs("https://example.com/docs", docsRoot, {
     outDir: ".",
     maxPages: 4,
@@ -405,10 +479,15 @@ test("crawls discovered pages in parallel", async () => {
     clean: false,
     keepQuery: false,
     layout: "title",
+    onProgress: ({ fetched, total }) => {
+      progress.push({ fetched, total });
+    },
   });
 
   expect(pages).toHaveLength(4);
   expect(maxActive).toBeGreaterThan(1);
+  expect(progress[0]).toEqual({ fetched: 0, total: 1 });
+  expect(progress.some((item) => item.fetched === 4)).toBe(true);
   expect(await Bun.file(join(docsRoot, "a.md")).exists()).toBe(true);
   expect(await Bun.file(join(docsRoot, "b.md")).exists()).toBe(true);
   expect(await Bun.file(join(docsRoot, "c.md")).exists()).toBe(true);
